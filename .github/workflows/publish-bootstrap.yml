@@ -1,0 +1,70 @@
+name: Publish repo bootstrap
+
+# Builds os-repo-aendryn (the package that configures pkg to use this repo)
+# and republishes the signed catalog to gh-pages, carrying over every plugin
+# package untouched. Runs only when the bootstrap source changes or on manual
+# dispatch — plugin repos publish themselves independently.
+#
+# Requires the PKG_SIGNING_KEY secret: the SAME signing key used by every
+# plugin repo that deploys here, matching net/repo-bootstrap/.../pubkey.rsa.
+# Bump BOOTSTRAP_VERSION below when you change the source, or clients won't
+# upgrade.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'net/repo-bootstrap/**'
+      - 'scripts/build-bootstrap.sh'
+      - '.github/workflows/publish-bootstrap.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  BOOTSTRAP_VERSION: "1.0.1"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch existing packages from gh-pages
+        run: |
+          git clone --depth 1 --branch gh-pages \
+            https://github.com/${{ github.repository }}.git /tmp/existing-repo || true
+          mkdir -p existing-pkgs
+          cp "/tmp/existing-repo/FreeBSD_14_amd64/latest/All/"*.pkg existing-pkgs/ 2>/dev/null || true
+          # Drop only the bootstrap package — it is rebuilt fresh. Every plugin
+          # package is carried over untouched.
+          rm -f existing-pkgs/os-repo-aendryn-*.pkg
+          echo "Existing packages:"
+          ls existing-pkgs/ || echo "(none)"
+
+      - name: Write signing key
+        run: |
+          printf '%s' "${{ secrets.PKG_SIGNING_KEY }}" > .ci-signing.key
+          chmod 600 .ci-signing.key
+
+      - name: Build bootstrap package and repo (FreeBSD)
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: "14.2"
+          usesh: true
+          prepare: pkg install -y bash
+          run: bash scripts/build-bootstrap.sh "${BOOTSTRAP_VERSION}" existing-pkgs
+
+      - name: Remove signing key
+        if: always()
+        run: rm -f .ci-signing.key
+
+      - name: Deploy to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: dist/repo
+          keep_files: true
