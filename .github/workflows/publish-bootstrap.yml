@@ -55,7 +55,7 @@ jobs:
           release: "14.2"
           usesh: true
           prepare: pkg install -y bash
-          run: bash scripts/build-bootstrap.sh "${BOOTSTRAP_VERSION}" existing-pkgs
+          run: bash scripts/build-bootstrap.sh "${{ env.BOOTSTRAP_VERSION }}" existing-pkgs
 
       - name: Remove signing key
         if: always()
